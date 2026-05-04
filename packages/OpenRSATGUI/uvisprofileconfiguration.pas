@@ -39,6 +39,7 @@ type
     CheckBox_CurrentUsername: TCheckBox;
     CheckBox_TLS: TCheckBox;
     CheckBox_Unsafe: TCheckBox;
+    CheckBox_GlobalCatalogSearch: TCheckBox;
     CheckBox_ChannelBinding: TCheckBox;
     ComboBox_Domains: TComboBox;
     ComboBox_DomainControllers: TComboBox;
@@ -53,6 +54,7 @@ type
     Label_CurrentUsername: TLabel;
     Label_Domain: TLabel;
     Label_Unsafe: TLabel;
+    Label_GlobalCatalogSearch: TLabel;
     Label_Algorithm: TLabel;
     Label_ChannelBinding: TLabel;
     Label_Username: TLabel;
@@ -383,6 +385,7 @@ begin
   RadioButton_Kerberos.Checked := (ASettings.AutoBind = lcbKerberos) or (ASettings.AutoBind = lcbNone);
 
   CheckBox_Unsafe.Checked := ASettings.AllowUnsafePasswordBind;
+  CheckBox_GlobalCatalogSearch.Checked := ASettings.UseGlobalCatalogSearch;
   CheckBox_ChannelBinding.Checked := not ASettings.KerberosDisableChannelBinding;
   CheckBox_CurrentUsername.Checked := not ASettings.UseCredentials;
 
@@ -438,6 +441,7 @@ begin
     ASettings.AutoBind := lcbNone;
 
   ASettings.AllowUnsafePasswordBind := CheckBox_Unsafe.Checked;
+  ASettings.UseGlobalCatalogSearch := CheckBox_GlobalCatalogSearch.Checked;
   ASettings.KerberosDisableChannelBinding := not CheckBox_ChannelBinding.Checked;
   ASettings.UseCredentials := not CheckBox_CurrentUsername.Checked;
   if (RadioButton_Kerberos.Checked and CheckBox_CurrentUsername.Checked) then

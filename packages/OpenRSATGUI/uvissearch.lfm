@@ -433,6 +433,30 @@ object VisSearch: TVisSearch
           TabOrder = 2
           Text = '1'
         end
+        object Label_GlobalCatalogSearch: TLabel
+          AnchorSideLeft.Control = TabSheet_Options
+          AnchorSideTop.Control = CheckBox_GlobalCatalogSearch
+          AnchorSideTop.Side = asrCenter
+          Left = 8
+          Height = 15
+          Top = 105
+          Width = 150
+          BorderSpacing.Around = 8
+          Caption = 'Search whole forest'
+          Constraints.MinWidth = 150
+        end
+        object CheckBox_GlobalCatalogSearch: TCheckBox
+          AnchorSideLeft.Control = Label_GlobalCatalogSearch
+          AnchorSideLeft.Side = asrBottom
+          AnchorSideTop.Control = Edit_PageCount
+          AnchorSideTop.Side = asrBottom
+          Left = 166
+          Height = 17
+          Top = 101
+          Width = 18
+          BorderSpacing.Around = 8
+          TabOrder = 3
+        end
       end
     end
     object Panel_Buttons: TPanel

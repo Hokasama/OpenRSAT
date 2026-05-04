@@ -129,7 +129,7 @@ object VisProfileConfiguration: TVisProfileConfiguration
       AnchorSideTop.Side = asrCenter
       Left = 8
       Height = 15
-      Top = 124
+      Top = 149
       Width = 150
       BorderSpacing.Around = 8
       Caption = 'Timeout'
@@ -140,11 +140,11 @@ object VisProfileConfiguration: TVisProfileConfiguration
     object Edit_Timeout: TEdit
       AnchorSideLeft.Control = Label_Timeout
       AnchorSideLeft.Side = asrBottom
-      AnchorSideTop.Control = CheckBox_Unsafe
+      AnchorSideTop.Control = CheckBox_GlobalCatalogSearch
       AnchorSideTop.Side = asrBottom
       Left = 166
       Height = 23
-      Top = 120
+      Top = 145
       Width = 50
       BorderSpacing.Around = 8
       Constraints.MaxWidth = 50
@@ -210,6 +210,32 @@ object VisProfileConfiguration: TVisProfileConfiguration
       Width = 18
       BorderSpacing.Around = 8
       TabOrder = 7
+    end
+    object Label_GlobalCatalogSearch: TLabel
+      AnchorSideLeft.Control = GroupBox_Domain
+      AnchorSideTop.Control = CheckBox_GlobalCatalogSearch
+      AnchorSideTop.Side = asrCenter
+      Left = 8
+      Height = 15
+      Top = 121
+      Width = 150
+      BorderSpacing.Around = 8
+      Caption = 'Search whole forest'
+      Constraints.MaxWidth = 150
+      Constraints.MinWidth = 150
+      WordWrap = True
+    end
+    object CheckBox_GlobalCatalogSearch: TCheckBox
+      AnchorSideLeft.Control = Label_GlobalCatalogSearch
+      AnchorSideLeft.Side = asrBottom
+      AnchorSideTop.Control = CheckBox_Unsafe
+      AnchorSideTop.Side = asrBottom
+      Left = 166
+      Height = 17
+      Top = 120
+      Width = 18
+      BorderSpacing.Around = 8
+      TabOrder = 9
     end
     object BitBtn_DCInfos: TBitBtn
       AnchorSideRight.Control = GroupBox_Domain

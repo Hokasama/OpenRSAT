@@ -35,12 +35,14 @@ type
     BitBtn_Add: TBitBtn;
     BitBtn_Del: TBitBtn;
     ComboBox_AdvCondition: TComboBox;
+    CheckBox_GlobalCatalogSearch: TCheckBox;
     Edit_AdvValue: TEdit;
     Edit_BasicValue: TEdit;
     Edit_PageSize: TEdit;
     Edit_PageCount: TEdit;
     Label_ResultCount: TLabel;
     Label_BasicValue: TLabel;
+    Label_GlobalCatalogSearch: TLabel;
     Label_ExpFilter: TLabel;
     Label_PageSize: TLabel;
     Label_PageCount: TLabel;
@@ -119,6 +121,8 @@ uses
   ucommon,
   ucommonui,
   ucoredatamodule,
+  uldapconfigs,
+  ursatldapclient,
   ursatldapclientui,
   uvischangedn,
   ufrmrsat;
@@ -139,6 +143,8 @@ begin
     rsSearchScopeWholeSubtree
   ]);
   ComboBox_SearchScope.ItemIndex := 2;
+  if FrmRSAT.RSAT.LdapClient.Settings is TMLdapClientSettings then
+    CheckBox_GlobalCatalogSearch.Checked := TMLdapClientSettings(FrmRSAT.RSAT.LdapClient.Settings).UseGlobalCatalogSearch;
   PageControl_Search.ActivePageIndex := 0;
   Edit_BasicValue.SetFocus;
   UnifyButtonsWidth([BitBtn_Add, BitBtn_Del]);
@@ -273,7 +279,8 @@ end;
 
 procedure TVisSearch.Action_ShowInViewUpdate(Sender: TObject);
 begin
-  Action_ShowInView.Enabled := TisGrid_Result.Enabled and TisGrid_Result.Focused and Assigned(TisGrid_Result.FocusedNode);
+  Action_ShowInView.Enabled := TisGrid_Result.Enabled and TisGrid_Result.Focused and Assigned(TisGrid_Result.FocusedNode) and
+                               not CheckBox_GlobalCatalogSearch.Checked;
 end;
 
 procedure TVisSearch.ComboBox_AdvConditionChange(Sender: TObject);
@@ -343,6 +350,9 @@ var
   data: TDocVariantData;
   attr: TLdapAttribute;
   row: PDocVariantData;
+  SearchLdap: TRsatLdapClient;
+  OwnSearchLdap: Boolean;
+  SearchBase: RawUtf8;
 begin
   Filter := '';
   Attributes := ['objectClass', 'distinguishedName', 'name', 'description'];
@@ -404,42 +414,66 @@ begin
      not TryStrToInt(Edit_PageCount.Text, pageCount) then
     aLog.Log(sllWarning, 'Cannot search.');
 
-  FrmRSAT.RSAT.LdapClient.SearchBegin(pageSize);
-  case ComboBox_SearchScope.ItemIndex of
-    0: FrmRSAT.RSAT.LdapClient.SearchScope := lssBaseObject;
-    1: FrmRSAT.RSAT.LdapClient.SearchScope := lssSingleLevel;
-    2: FrmRSAT.RSAT.LdapClient.SearchScope := lssWholeSubtree;
+  SearchLdap := FrmRSAT.RSAT.LdapClient;
+  OwnSearchLdap := False;
+  SearchBase := Trim(Edit_Path.Text);
+
+  if CheckBox_GlobalCatalogSearch.Checked then
+  begin
+    SearchLdap := CreateGlobalCatalogClient(FrmRSAT.RSAT.LdapClient);
+    OwnSearchLdap := True;
+    if not SearchLdap.Connect() then
+    begin
+      ShowLdapConnectError(SearchLdap);
+      FreeAndNil(SearchLdap);
+      Exit;
+    end;
+    SearchBase := SearchLdap.RootDN();
+    if SearchBase = '' then
+      SearchBase := SearchLdap.DefaultDN();
   end;
 
-  TisGrid_Result.BeginUpdate;
   try
-    repeat
-      if not FrmRSAT.RSAT.LdapClient.Search(Trim(Edit_Path.Text), False, Filter, Attributes) then
-        Exit;
-      for item in FrmRSAT.RSAT.LdapClient.SearchResult.Items do
-      begin
-        if not Assigned(item) or (item.Attributes.Count <= 0) then
-          continue;
-        for attribute in attributes do
+    SearchLdap.SearchBegin(pageSize);
+    case ComboBox_SearchScope.ItemIndex of
+      0: SearchLdap.SearchScope := lssBaseObject;
+      1: SearchLdap.SearchScope := lssSingleLevel;
+      2: SearchLdap.SearchScope := lssWholeSubtree;
+    end;
+
+    TisGrid_Result.BeginUpdate;
+    try
+      repeat
+        if not SearchLdap.Search(SearchBase, False, Filter, Attributes) then
+          Exit;
+        for item in SearchLdap.SearchResult.Items do
         begin
-          attr := item.Find(attribute);
-          if not Assigned(attr) then
+          if not Assigned(item) or (item.Attributes.Count <= 0) then
             continue;
-          case attribute of
-            'objectClass': data.AddValue(attribute, attr.GetReadable(attr.Count - 1));
-          else
-            data.AddValue(attribute, attr.GetReadable());
+          for attribute in attributes do
+          begin
+            attr := item.Find(attribute);
+            if not Assigned(attr) then
+              continue;
+            case attribute of
+              'objectClass': data.AddValue(attribute, attr.GetReadable(attr.Count - 1));
+            else
+              data.AddValue(attribute, attr.GetReadable());
+            end;
           end;
+          TisGrid_Result.Data.AddItem(data);
+          data.Clear;
         end;
-        TisGrid_Result.Data.AddItem(data);
-        data.Clear;
-      end;
-      Inc(count);
-    until (FrmRSAT.RSAT.LdapClient.SearchCookie = '') or (count = pageCount);
+        Inc(count);
+      until (SearchLdap.SearchCookie = '') or (count = pageCount);
+    finally
+      SearchLdap.SearchEnd;
+      TisGrid_Result.EndUpdate;
+      TisGrid_Result.LoadData;
+    end;
   finally
-    FrmRSAT.RSAT.LdapClient.SearchEnd;
-    TisGrid_Result.EndUpdate;
-    TisGrid_Result.LoadData;
+    if OwnSearchLdap then
+      FreeAndNil(SearchLdap);
   end;
 end;
 

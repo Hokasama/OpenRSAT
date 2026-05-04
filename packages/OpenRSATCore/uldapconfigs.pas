@@ -15,10 +15,16 @@ type
   TMLdapClientSettings = class(TLdapClientSettings)
   private
     fUseCredentials: Boolean;
+    fUseGlobalCatalogSearch: Boolean;
+    fGlobalCatalogHost: RawUtf8;
+    fGlobalCatalogPort: RawUtf8;
   public
     property Password: SpiUtf8 read fPassword write fPassword;
   published
     property UseCredentials: Boolean read fUseCredentials write fUseCredentials default True;
+    property UseGlobalCatalogSearch: Boolean read fUseGlobalCatalogSearch write fUseGlobalCatalogSearch default False;
+    property GlobalCatalogHost: RawUtf8 read fGlobalCatalogHost write fGlobalCatalogHost;
+    property GlobalCatalogPort: RawUtf8 read fGlobalCatalogPort write fGlobalCatalogPort;
   end;
 
   { TConnectionSettings }

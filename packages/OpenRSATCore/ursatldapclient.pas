@@ -12,7 +12,8 @@ uses
   mormot.core.os.security,
   mormot.core.variants,
   mormot.net.ldap,
-  ucommon;
+  ucommon,
+  uldapconfigs;
 
 type
 
@@ -117,6 +118,11 @@ type
   end;
 
 function GetLdapErrorCustomMessage(LdapClient: TLdapClient): RawUtf8;
+function CreateGlobalCatalogClient(Source: TRsatLdapClient): TRsatLdapClient;
+
+const
+  LDAP_GLOBAL_CATALOG_PORT: RawUtf8 = '3268';
+  LDAP_GLOBAL_CATALOG_TLS_PORT: RawUtf8 = '3269';
 
 const
   LDAP_ERROR_CUSTOM_MESSAGE: Array[leOperationsError..leOther] of RawUtf8 = (
@@ -170,6 +176,42 @@ uses
   mormot.core.log,
   mormot.core.text,
   mormot.core.rtti;
+
+function CreateGlobalCatalogClient(Source: TRsatLdapClient): TRsatLdapClient;
+var
+  Settings: TMLdapClientSettings;
+  SourceSettings: TMLdapClientSettings;
+begin
+  Settings := TMLdapClientSettings.Create;
+  CopyObject(Source.Settings, Settings);
+
+  if Source.Settings is TMLdapClientSettings then
+  begin
+    SourceSettings := TMLdapClientSettings(Source.Settings);
+    if SourceSettings.GlobalCatalogHost <> '' then
+      Settings.TargetHost := SourceSettings.GlobalCatalogHost;
+    if SourceSettings.GlobalCatalogPort <> '' then
+      Settings.TargetPort := SourceSettings.GlobalCatalogPort;
+  end;
+
+  if Settings.TargetPort = '' then
+  begin
+    if Settings.Tls then
+      Settings.TargetPort := LDAP_GLOBAL_CATALOG_TLS_PORT
+    else
+      Settings.TargetPort := LDAP_GLOBAL_CATALOG_PORT;
+  end
+  else if Settings.TargetPort = LDAP_PORT then
+    Settings.TargetPort := LDAP_GLOBAL_CATALOG_PORT
+  else if Settings.TargetPort = LDAP_TLS_PORT then
+    Settings.TargetPort := LDAP_GLOBAL_CATALOG_TLS_PORT;
+
+  Settings.KerberosSpn := '';
+  Result := TRsatLdapClient.Create(Settings);
+  Result.OnError := Source.OnError;
+  if Assigned(Result.TlsContext) then
+    Result.TlsContext^.IgnoreCertificateErrors := Settings.AllowUnsafePasswordBind;
+end;
 
 function GetLdapErrorCustomMessage(LdapClient: TLdapClient): RawUtf8;
 begin
