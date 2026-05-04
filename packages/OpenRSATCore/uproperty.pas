@@ -83,6 +83,7 @@ type
     fTempModify: TDocVariantData;
 
     fRSAT: TRSAT;
+    fLdapClient: TRsatLdapClient;
 
     fLAPSInformation: TLAPSInformation;
 
@@ -100,7 +101,8 @@ type
   public
     /// TProperty default constructor.
     /// ARSAT: Provide an access to TRSAT instance.
-    constructor Create(ARSAT: TRSAT = nil);
+    /// ALdapClient: Optional LDAP client override for objects opened from another domain.
+    constructor Create(ARSAT: TRSAT = nil; ALdapClient: TRsatLdapClient = nil);
     destructor Destroy; override;
 
     /// Check for local changes.
@@ -650,7 +652,9 @@ function TProperty.GetLdapClient: TRsatLdapClient;
 begin
   result := nil;
 
-  if Assigned(fRSAT) then
+  if Assigned(fLdapClient) then
+    result := fLdapClient
+  else if Assigned(fRSAT) then
     result := fRSAT.LdapClient;
 end;
 
@@ -1215,9 +1219,10 @@ begin
   fTempModify.Clear;
 end;
 
-constructor TProperty.Create(ARSAT: TRSAT);
+constructor TProperty.Create(ARSAT: TRSAT; ALdapClient: TRsatLdapClient);
 begin
   fRSAT := ARSAT;
+  fLdapClient := ALdapClient;
 
   fTempModify.Init();
 end;
@@ -1427,14 +1432,14 @@ begin
       Filter := FormatUtf8('(|%)', [Filter]);
     AObjectClass := [];
 
-    RSAT.LdapClient.SearchBegin();
+    LdapClient.SearchBegin();
     try
-      RSAT.LdapClient.SearchScope := lssWholeSubtree;
+      LdapClient.SearchScope := lssWholeSubtree;
       repeat
-        if not RSAT.LdapClient.Search(RSAT.LdapClient.SchemaDN, False, Filter, ['mustContain', 'systemMustContain', 'mayContain', 'systemMayContain', 'auxiliaryClass', 'systemAuxiliaryClass']) then
+        if not LdapClient.Search(LdapClient.SchemaDN, False, Filter, ['mustContain', 'systemMustContain', 'mayContain', 'systemMayContain', 'auxiliaryClass', 'systemAuxiliaryClass']) then
           Exit;
 
-        for SearchResult in RSAT.LdapClient.SearchResult.Items do
+        for SearchResult in LdapClient.SearchResult.Items do
         begin
           if not Assigned(SearchResult) then
             continue;
@@ -1466,16 +1471,16 @@ begin
             end;
           end;
         end;
-      until RSAT.LdapClient.SearchCookie = '';
+      until LdapClient.SearchCookie = '';
     finally
-      RSAT.LdapClient.SearchEnd;
+      LdapClient.SearchEnd;
     end;
   until not Assigned(AObjectClass) or (Length(AObjectClass) <= 0);
 end;
 
 function TProperty.NTAuthCertificatesDN: RawUtf8;
 begin
-  result := FormatUtf8('CN=NTAuthCertificates,CN=Public Key Services,CN=Services,%', [RSAT.LdapClient.ConfigDN]);
+  result := FormatUtf8('CN=NTAuthCertificates,CN=Public Key Services,CN=Services,%', [LdapClient.ConfigDN]);
 end;
 
 function TProperty.NTAuthCertificates: TRawByteStringDynArray;
@@ -1485,7 +1490,7 @@ var
   TempArr: TRawByteStringDynArray;
 begin
   result := nil;
-  Attribute := RSAT.LdapClient.SearchObject(NTAuthCertificatesDN, '', 'cACertificate');
+  Attribute := LdapClient.SearchObject(NTAuthCertificatesDN, '', 'cACertificate');
   if not Assigned(Attribute) then
     Exit;
 

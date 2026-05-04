@@ -105,15 +105,15 @@ var
 begin
   result := False;
 
-  if not Assigned(Props) or not Assigned(Props.RSAT) or not Assigned(Props.RSAT.LdapClient) then
+  if not Assigned(Props) or not Assigned(Props.RSAT) or not Assigned(Props.LdapClient) then
     Exit;
 
-  result := (Props.distinguishedName = Props.RSAT.LdapClient.DefaultDN);
+  result := (Props.distinguishedName = Props.LdapClient.DefaultDN);
 
   if result then
     Exit;
 
-  Attribute := Props.RSAT.LdapClient.SearchObject(GetParentDN(Props.distinguishedName), '', 'nTSecurityDescriptor');
+  Attribute := Props.LdapClient.SearchObject(GetParentDN(Props.distinguishedName), '', 'nTSecurityDescriptor');
   if not Assigned(Attribute) then
     Exit;
 
@@ -264,11 +264,11 @@ begin
 
   // Parent
   FoundParent := False;
-  if (Props.distinguishedName = Props.RSAT.LdapClient.DefaultDN) then
+  if (Props.distinguishedName = Props.LdapClient.DefaultDN) then
     FoundParent := True
   else
   begin
-    Attribute := Props.RSAT.LdapClient.SearchObject(GetParentDN(Props.distinguishedName), '', 'nTSecurityDescriptor');
+    Attribute := Props.LdapClient.SearchObject(GetParentDN(Props.distinguishedName), '', 'nTSecurityDescriptor');
     if not Assigned(Attribute) then
       Exit;
 

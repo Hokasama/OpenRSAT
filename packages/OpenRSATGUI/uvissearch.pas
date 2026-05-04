@@ -330,8 +330,13 @@ end;
 
 procedure TVisSearch.Action_PropertiesExecute(Sender: TObject);
 begin
-  Action_ShowInView.Execute;
-  FrmRSAT.OpenProperty(TisGrid_Result.FocusedRow^.S['distinguishedName'], TisGrid_Result.FocusedRow^.S['name']);
+  if CheckBox_GlobalCatalogSearch.Checked then
+    FrmRSAT.OpenPropertyInObjectDomain(TisGrid_Result.FocusedRow^.S['distinguishedName'], TisGrid_Result.FocusedRow^.S['name'])
+  else
+  begin
+    Action_ShowInView.Execute;
+    FrmRSAT.OpenProperty(TisGrid_Result.FocusedRow^.S['distinguishedName'], TisGrid_Result.FocusedRow^.S['name']);
+  end;
 end;
 
 procedure TVisSearch.Action_PropertiesUpdate(Sender: TObject);

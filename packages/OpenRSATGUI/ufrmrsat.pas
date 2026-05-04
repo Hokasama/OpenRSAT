@@ -110,6 +110,9 @@ type
 
     procedure CloseProperty(VisProperty: TForm);
     function OpenProperty(DistinguishedName: RawUtf8; AName: RawUtf8 = ''): TForm;
+    function OpenProperty(DistinguishedName: RawUtf8; AName: RawUtf8;
+      ALdapClient: TRsatLdapClient; AOwnLdapClient: Boolean): TForm;
+    function OpenPropertyInObjectDomain(DistinguishedName: RawUtf8; AName: RawUtf8 = ''): TForm;
     procedure Load;
     procedure ChangeDomainController(DomainController: RawUtf8);
 
@@ -549,9 +552,31 @@ end;
 
 function TFrmRSAT.OpenProperty(DistinguishedName: RawUtf8; AName: RawUtf8): TForm;
 begin
+  result := OpenProperty(DistinguishedName, AName, nil, False);
+end;
+
+function TFrmRSAT.OpenProperty(DistinguishedName: RawUtf8; AName: RawUtf8;
+  ALdapClient: TRsatLdapClient; AOwnLdapClient: Boolean): TForm;
+begin
   if AName = '' then
     AName := GetDNName(DistinguishedName);
-  result := fVisPropertiesList.Open(AName, DistinguishedName);
+  result := fVisPropertiesList.Open(AName, DistinguishedName, ALdapClient, AOwnLdapClient);
+end;
+
+function TFrmRSAT.OpenPropertyInObjectDomain(DistinguishedName: RawUtf8;
+  AName: RawUtf8): TForm;
+var
+  Ldap: TRsatLdapClient;
+begin
+  result := nil;
+  Ldap := CreateObjectDomainClient(LdapClient, DistinguishedName);
+  if not Assigned(Ldap) then
+    Exit;
+  if AName = '' then
+    AName := GetDNName(DistinguishedName);
+  if DnToDomainName(DistinguishedName) <> '' then
+    AName := FormatUtf8('% (%)', [AName, DnToDomainName(DistinguishedName)]);
+  result := OpenProperty(DistinguishedName, AName, Ldap, True);
 end;
 
 procedure TFrmRSAT.Load;

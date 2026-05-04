@@ -33,7 +33,8 @@ uses
   ucommon,
   ucoredatamodule,
   upropertyframe,
-  uproperty;
+  uproperty,
+  ursatldapclient;
 
 type
 
@@ -113,6 +114,8 @@ type
     fProperty: TProperty;
     fPropertyFrameList: Array of TPropertyFrame;
     fDistinguishedName: RawUtf8;
+    fLdapClient: TRsatLdapClient;
+    fOwnLdapClient: Boolean;
 
     function LoadAttributes: Boolean;
     procedure OnSearchEventFillAttributes(Sender: TObject);
@@ -120,7 +123,8 @@ type
     procedure UpdateTabs;
     procedure NewTab(NewFrameClass: TPropertyFrameClass);
   public
-    constructor Create(TheOwner: TComponent; ADistinguishedName: RawUtf8); reintroduce;
+    constructor Create(TheOwner: TComponent; ADistinguishedName: RawUtf8;
+      ALdapClient: TRsatLdapClient = nil; AOwnLdapClient: Boolean = False); reintroduce;
     destructor Destroy(); override;
 
     property DistinguishedName: RawUtf8 read fDistinguishedName;
@@ -298,7 +302,6 @@ uses
   ufrmpropertyntauthcertificates,
   ufrmpropertysecurity,
   ufrmpropertytelephone,
-  ursatldapclient,
   ursatldapclientui,
   uconfig,
   ucommonui,
@@ -485,27 +488,33 @@ const
 { TVisProperties }
 
 constructor TVisProperties.Create(TheOwner: TComponent;
-  ADistinguishedName: RawUtf8);
+  ADistinguishedName: RawUtf8; ALdapClient: TRsatLdapClient;
+  AOwnLdapClient: Boolean);
 begin
   Inherited Create(TheOwner);
 
   fDistinguishedName := ADistinguishedName;
+  fLdapClient := ALdapClient;
+  fOwnLdapClient := AOwnLdapClient;
+  if not Assigned(fLdapClient) and Assigned(FrmRSAT) then
+    fLdapClient := FrmRSAT.LdapClient;
 
   if not Assigned(FrmRSAT) or
-     not Assigned(FrmRSAT.LdapClient) or
-     not FrmRSAT.LdapClient.Connected or
+     not Assigned(fLdapClient) or
      (fDistinguishedName = '') then
     Exit;
 
   IniPropStorage1.IniFileName := VisBakFilePath;
   UnifyButtonsWidth([Btn_BottomApply, Btn_BottomCancel, Btn_BottomOK]);
 
-  fProperty := TProperty.Create(FrmRSAT.RSAT);
+  fProperty := TProperty.Create(FrmRSAT.RSAT, fLdapClient);
 end;
 
 destructor TVisProperties.Destroy();
 begin
   FreeAndNil(fProperty);
+  if fOwnLdapClient then
+    FreeAndNil(fLdapClient);
 
   Inherited;
 end;
@@ -574,12 +583,12 @@ var
 begin
   result := False;
   // Fetch data
-  fProperty.RSAT.LdapClient.SearchRangeBegin;
+  fProperty.LdapClient.SearchRangeBegin;
   try
-    LdapObject := fProperty.RSAT.LdapClient.SearchObject(DistinguishedName, '', ['*']);
+    LdapObject := fProperty.LdapClient.SearchObject(DistinguishedName, '', ['*']);
   finally
-    fProperty.RSAT.LdapClient.SearchRangeEnd;
-    OnSearchEventFillAttributes(fProperty.RSAT.LdapClient);
+    fProperty.LdapClient.SearchRangeEnd;
+    OnSearchEventFillAttributes(fProperty.LdapClient);
   end;
   if not Assigned(LdapObject) then
   begin
@@ -598,7 +607,7 @@ begin
   // Fill Attributes
   if LdapClient.SearchResult.Count > 0 then
     fProperty.Attributes := LdapClient.SearchResult.Items[0].Attributes;
-  fProperty.RSAT.LdapClient.OnSearch := nil;
+  fProperty.LdapClient.OnSearch := nil;
 end;
 
 procedure TVisProperties.LoadView;

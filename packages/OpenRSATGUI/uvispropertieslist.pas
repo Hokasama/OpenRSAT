@@ -26,8 +26,10 @@ type
     fItems: TVisPropertiesDynArray;
   public
     constructor Create;
-    function Open(AName: String; ADistinguishedName: String): TVisProperties;
-    function New(AName: String; ADistinguishedName: String): TVisProperties;
+    function Open(AName: String; ADistinguishedName: String;
+      ALdapClient: TRsatLdapClient = nil; AOwnLdapClient: Boolean = False): TVisProperties;
+    function New(AName: String; ADistinguishedName: String;
+      ALdapClient: TRsatLdapClient = nil; AOwnLdapClient: Boolean = False): TVisProperties;
     function Close(aForm: TVisProperties): boolean;
     function CloseAll: boolean;
     function Exists(AName: String): boolean;
@@ -74,8 +76,8 @@ begin
   fItems := [];
 end;
 
-function TVisPropertiesList.Open(AName: String; ADistinguishedName: String
-  ): TVisProperties;
+function TVisPropertiesList.Open(AName: String; ADistinguishedName: String;
+  ALdapClient: TRsatLdapClient; AOwnLdapClient: Boolean): TVisProperties;
 begin
   result := nil;
 
@@ -90,15 +92,16 @@ begin
   if Exists(AName) then // Already exists
   begin
     result := Focus(ADistinguishedName);
-    Exit;
+    if Assigned(result) then
+      Exit;
   end;
 
   // Create new
-  result := New(AName, ADistinguishedName);
+  result := New(AName, ADistinguishedName, ALdapClient, AOwnLdapClient);
 end;
 
-function TVisPropertiesList.New(AName: String; ADistinguishedName: String
-  ): TVisProperties;
+function TVisPropertiesList.New(AName: String; ADistinguishedName: String;
+  ALdapClient: TRsatLdapClient; AOwnLdapClient: Boolean): TVisProperties;
 var
   c: SizeInt;
 begin
@@ -107,7 +110,7 @@ begin
   c := Count;
   SetLength(fItems, c + 1);
 
-  fItems[c] := TVisProperties.Create(FrmRSAT, ADistinguishedName);
+  fItems[c] := TVisProperties.Create(FrmRSAT, ADistinguishedName, ALdapClient, AOwnLdapClient);
   result := fItems[c];
   fItems[c].Caption := AName;
   if Assigned(fItems[c].Owner) then

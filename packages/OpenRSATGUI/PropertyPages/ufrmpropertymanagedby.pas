@@ -166,7 +166,7 @@ begin
       Exit;
     end;
   end;
-  Props.RSAT.LdapClient.OrderAcl(Props.distinguishedName, Props.RSAT.LdapClient.DefaultDN, @PSecDesc^.Dacl);
+  Props.LdapClient.OrderAcl(Props.distinguishedName, Props.LdapClient.DefaultDN, @PSecDesc^.Dacl);
 
   Props.SecurityDescriptor := PSecDesc;
   result := True;
@@ -216,7 +216,7 @@ begin
 
   if (ManagedBy <> '') then
   begin
-    LdapResult := Props.RSAT.LdapClient.SearchObject(ManagedBy, '', [
+    LdapResult := Props.LdapClient.SearchObject(ManagedBy, '', [
       'name',
       'distinguishedName',
       'physicalDeliveryOfficeName',
@@ -232,7 +232,7 @@ begin
     if not Assigned(LdapResult) then
     begin
       if Assigned(fLog) then
-        fLog.Log(sllError, 'Ldap Search Error: "%"', [Props.RSAT.LdapClient.ResultString], Self);
+        fLog.Log(sllError, 'Ldap Search Error: "%"', [Props.LdapClient.ResultString], Self);
       Exit;
     end;
     fManagerAttributes := TLdapAttributeList(LdapResult.Attributes.Clone);
@@ -290,7 +290,7 @@ begin
 
   // Omniselect
   DNarr := [''];
-  Omniselect := TVisOmniselect.Create(self, fProperty.RSAT.LdapClient, ['user', 'group', 'contacts'], fProperty.RSAT.LdapClient.DefaultDN(), False, Filter);
+  Omniselect := TVisOmniselect.Create(self, fProperty.LdapClient, ['user', 'group', 'contacts'], fProperty.LdapClient.DefaultDN(), False, Filter);
   try
     Omniselect.Caption := rsTitleSelectNewManager;
     if Omniselect.ShowModal() <> mrOK then

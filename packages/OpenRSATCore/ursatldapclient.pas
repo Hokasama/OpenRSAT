@@ -118,7 +118,9 @@ type
   end;
 
 function GetLdapErrorCustomMessage(LdapClient: TLdapClient): RawUtf8;
+function DnToDomainName(const DistinguishedName: RawUtf8): RawUtf8;
 function CreateGlobalCatalogClient(Source: TRsatLdapClient): TRsatLdapClient;
+function CreateObjectDomainClient(Source: TRsatLdapClient; const ObjectDN: RawUtf8): TRsatLdapClient;
 
 const
   LDAP_GLOBAL_CATALOG_PORT: RawUtf8 = '3268';
@@ -177,6 +179,32 @@ uses
   mormot.core.text,
   mormot.core.rtti;
 
+function CreateLdapClientFromSettings(Source: TRsatLdapClient; Settings: TMLdapClientSettings): TRsatLdapClient;
+begin
+  Settings.KerberosSpn := '';
+  Result := TRsatLdapClient.Create(Settings);
+  Result.OnError := Source.OnError;
+  if Assigned(Result.TlsContext) then
+    Result.TlsContext^.IgnoreCertificateErrors := Settings.AllowUnsafePasswordBind;
+end;
+
+function DnToDomainName(const DistinguishedName: RawUtf8): RawUtf8;
+var
+  Pairs: TNameValueDNs;
+  Pair: TNameValueDN;
+begin
+  result := '';
+  if not ParseDN(DistinguishedName, Pairs, True) then
+    Exit;
+  for Pair in Pairs do
+    if SameText(Pair.Name, 'DC') then
+    begin
+      if result <> '' then
+        result += '.';
+      result += Pair.Value;
+    end;
+end;
+
 function CreateGlobalCatalogClient(Source: TRsatLdapClient): TRsatLdapClient;
 var
   Settings: TMLdapClientSettings;
@@ -206,11 +234,30 @@ begin
   else if Settings.TargetPort = LDAP_TLS_PORT then
     Settings.TargetPort := LDAP_GLOBAL_CATALOG_TLS_PORT;
 
-  Settings.KerberosSpn := '';
-  Result := TRsatLdapClient.Create(Settings);
-  Result.OnError := Source.OnError;
-  if Assigned(Result.TlsContext) then
-    Result.TlsContext^.IgnoreCertificateErrors := Settings.AllowUnsafePasswordBind;
+  Result := CreateLdapClientFromSettings(Source, Settings);
+end;
+
+function CreateObjectDomainClient(Source: TRsatLdapClient; const ObjectDN: RawUtf8): TRsatLdapClient;
+var
+  Settings: TMLdapClientSettings;
+  DomainName: RawUtf8;
+begin
+  result := nil;
+  DomainName := DnToDomainName(ObjectDN);
+  if DomainName = '' then
+    Exit;
+
+  Settings := TMLdapClientSettings.Create;
+  CopyObject(Source.Settings, Settings);
+  Settings.TargetHost := DomainName;
+  Settings.KerberosDN := DomainName;
+
+  if (Settings.TargetPort = '') or (Settings.TargetPort = LDAP_GLOBAL_CATALOG_PORT) then
+    Settings.TargetPort := LDAP_PORT
+  else if Settings.TargetPort = LDAP_GLOBAL_CATALOG_TLS_PORT then
+    Settings.TargetPort := LDAP_TLS_PORT;
+
+  Result := CreateLdapClientFromSettings(Source, Settings);
 end;
 
 function GetLdapErrorCustomMessage(LdapClient: TLdapClient): RawUtf8;
