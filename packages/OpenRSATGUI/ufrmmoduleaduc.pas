@@ -2507,10 +2507,12 @@ var
   OwnLdapClient: Boolean;
   SearchResult: TLdapResult;
   DomainDN, DomainName, ForestName: RawUtf8;
+  SearchBase, SearchFilter: RawUtf8;
   RefreshNode: TADUCTreeNode;
   DomainParentNode: TADUCTreeNode;
+  DomainObjectClass: TRawUtf8DynArray;
   ItemNodeData: TADUCTreeNodeObject;
-  i: Integer;
+  i, FoundDomains, DiscoveryPass: Integer;
 begin
   if not UseGlobalCatalogBrowsing then
     Exit;
@@ -2546,59 +2548,93 @@ begin
         BackupItems.I[ItemNodeData.DistinguishedName] := i;
     end;
 
-    Ldap.SearchBegin(fModuleAduc.ADUCOption.SearchPageSize);
+    FoundDomains := 0;
     TreeADUC.BeginUpdate;
     try
-      Ldap.SearchScope := lssWholeSubtree;
-      repeat
-        if not Ldap.Search(Ldap.RootDN(), False, '(objectClass=domainDNS)', ['distinguishedName', 'objectClass', 'name', 'gPLink', 'gPOptions']) then
+      for DiscoveryPass := 0 to 1 do
+      begin
+        if DiscoveryPass = 0 then
         begin
-          if Assigned(fLog) then
-            fLog.Log(sllError, 'Fail to discover forest domains: %', [Ldap.ResultString], Self);
-          Exit;
+          SearchBase := FormatUtf8('CN=Partitions,%', [Ldap.ConfigDN()]);
+          SearchFilter := '(&(objectClass=crossRef)(nCName=*)(dnsRoot=*)(nETBIOSName=*))';
+        end
+        else
+        begin
+          if FoundDomains > 0 then
+            Break;
+          SearchBase := Ldap.RootDN();
+          SearchFilter := '(objectClass=domainDNS)';
         end;
 
-        for SearchResult in Ldap.SearchResult.Items do
-        begin
-          if not Assigned(SearchResult) then
-            Continue;
+        Ldap.SearchBegin(fModuleAduc.ADUCOption.SearchPageSize);
+        try
+          Ldap.SearchScope := lssWholeSubtree;
+          repeat
+            if not Ldap.Search(SearchBase, False, SearchFilter, ['distinguishedName', 'objectClass', 'name', 'nCName', 'dnsRoot', 'nETBIOSName', 'gPLink', 'gPOptions']) then
+            begin
+              if Assigned(fLog) then
+                fLog.Log(sllError, 'Fail to discover forest domains from %: %', [SearchBase, Ldap.ResultString], Self);
+              Break;
+            end;
 
-          DomainDN := SearchResult.Find('distinguishedName').GetReadable();
-          if DomainDN = '' then
-            Continue;
+            for SearchResult in Ldap.SearchResult.Items do
+            begin
+              if not Assigned(SearchResult) then
+                Continue;
 
-          if BackupItems.Exists(DomainDN) then
-          begin
-            RefreshNode := (DomainParentNode.Items[BackupItems.I[DomainDN]] as TADUCTreeNode);
-            BackupItems.Delete(DomainDN);
-          end
-          else
-          begin
-            DomainName := DnToDomainName(DomainDN);
-            if DomainName = '' then
-              DomainName := DNToCN(DomainDN);
-            RefreshNode := (TreeADUC.Items.AddChild(DomainParentNode, String(DomainName)) as TADUCTreeNode);
-            RefreshNode.NodeType := atntObject;
-            RefreshNode.HasChildren := True;
-          end;
+              if DiscoveryPass = 0 then
+              begin
+                DomainDN := SearchResult.Find('nCName').GetReadable();
+                DomainName := SearchResult.Find('dnsRoot').GetReadable();
+              end
+              else
+              begin
+                DomainDN := SearchResult.Find('distinguishedName').GetReadable();
+                DomainName := DnToDomainName(DomainDN);
+              end;
+              if DomainDN = '' then
+                Continue;
+              if DomainName = '' then
+                DomainName := DnToDomainName(DomainDN);
+              if DomainName = '' then
+                DomainName := DNToCN(DomainDN);
 
-          ItemNodeData := RefreshNode.GetNodeDataObject;
-          if not Assigned(ItemNodeData) then
-            Continue;
-          ItemNodeData.DistinguishedName := DomainDN;
-          ItemNodeData.Name := SearchResult.Find('name').GetReadable();
-          ItemNodeData.ObjectClass := SearchResult.Find('objectClass').GetAllReadable;
-          ItemNodeData.GPLink := SearchResult.Find('gPLink').GetReadable();
-          ItemNodeData.GPOptions := SearchResult.Find('gPOptions').GetReadable();
-          TreeADUC.OnGetImageIndex(Self, RefreshNode);
+              Inc(FoundDomains);
+              if BackupItems.Exists(DomainDN) then
+              begin
+                RefreshNode := (DomainParentNode.Items[BackupItems.I[DomainDN]] as TADUCTreeNode);
+                BackupItems.Delete(DomainDN);
+              end
+              else
+              begin
+                RefreshNode := (TreeADUC.Items.AddChild(DomainParentNode, String(DomainName)) as TADUCTreeNode);
+                RefreshNode.NodeType := atntObject;
+                RefreshNode.HasChildren := True;
+              end;
 
-          if (fADUCDomainNode = nil) or (DomainDN = FrmRSAT.LdapClient.DefaultDN()) then
-            fADUCDomainNode := RefreshNode;
+              RefreshNode.Text := String(DomainName);
+              ItemNodeData := RefreshNode.GetNodeDataObject;
+              if not Assigned(ItemNodeData) then
+                Continue;
+              ItemNodeData.DistinguishedName := DomainDN;
+              ItemNodeData.Name := SearchResult.Find('name').GetReadable();
+              SetLength(DomainObjectClass, 1);
+              DomainObjectClass[0] := 'domainDNS';
+              ItemNodeData.ObjectClass := DomainObjectClass;
+              ItemNodeData.GPLink := SearchResult.Find('gPLink').GetReadable();
+              ItemNodeData.GPOptions := SearchResult.Find('gPOptions').GetReadable();
+              TreeADUC.OnGetImageIndex(Self, RefreshNode);
+
+              if (fADUCDomainNode = nil) or (DomainDN = FrmRSAT.LdapClient.DefaultDN()) then
+                fADUCDomainNode := RefreshNode;
+            end;
+          until Ldap.SearchCookie = '';
+        finally
+          Ldap.SearchEnd;
         end;
-      until Ldap.SearchCookie = '';
+      end;
     finally
       TreeADUC.EndUpdate;
-      Ldap.SearchEnd;
     end;
 
     TreeADUC.BeginUpdate;
