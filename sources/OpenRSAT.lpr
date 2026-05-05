@@ -29,6 +29,7 @@ uses
   mormot.lib.openssl11,
   mormot.crypt.openssl,
   // Rsat
+  uopenadaxesbranding,
   uvisopenrsat;
 
 const
@@ -97,7 +98,7 @@ end;
 
 function GetApplicationName: String;
 begin
-  result := 'OpenRSAT';
+  result := PRODUCT_NAME;
 end;
 
 begin

@@ -93,6 +93,7 @@ uses
   mormot.core.os,
   mormot.core.text,
   uconfig,
+  uopenadaxesbranding,
   ufrmrsatoptions,
   ufrmrsat,
   ursatoption,
@@ -264,6 +265,7 @@ end;
 constructor TVisOpenRSAT.Create(TheOwner: TComponent);
 begin
   inherited Create(TheOwner);
+  Caption := PRODUCT_NAME;
 
   fLog := TSynLog.Add;
 
