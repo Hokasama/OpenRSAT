@@ -373,6 +373,9 @@ type
     destructor Destroy; override;
 
     procedure Focus(DistinguishedName: String);
+    function ExplicitDomainClientCount: Integer;
+    function ExplicitDomainClient(Index: Integer): TRsatLdapClient;
+    function ExplicitDomainClientForDN(const DistinguishedName: RawUtf8): TRsatLdapClient;
 
     procedure BeginUpdate;
     procedure EndUpdate;
@@ -3682,12 +3685,56 @@ begin
   inherited Destroy;
 end;
 
+function TFrmModuleADUC.ExplicitDomainClientCount: Integer;
+begin
+  result := Length(fExplicitDomainClients);
+end;
+
+function TFrmModuleADUC.ExplicitDomainClient(Index: Integer): TRsatLdapClient;
+begin
+  result := nil;
+  if (Index >= 0) and (Index <= High(fExplicitDomainClients)) then
+    result := fExplicitDomainClients[Index];
+end;
+
+function TFrmModuleADUC.ExplicitDomainClientForDN(const DistinguishedName: RawUtf8): TRsatLdapClient;
+begin
+  result := FindExplicitDomainClient(DistinguishedName);
+end;
+
 procedure TFrmModuleADUC.Focus(DistinguishedName: String);
 var
   parentDN: String;
   node: PVirtualNode;
   row: PDocVariantData;
-  FoundNode: TADUCTreeNode;
+  FoundNode, DomainRoot: TADUCTreeNode;
+
+  function FindDomainRootNode(DN: String): TADUCTreeNode;
+  var
+    i, BestLen: Integer;
+    ItemNodeData: TADUCTreeNodeObject;
+    ItemDN, TargetDN: String;
+  begin
+    result := fADUCDomainNode;
+    BestLen := -1;
+    TargetDN := LowerCase(DN);
+    if not Assigned(fADUCActiveDirectoryNode) then
+      Exit;
+    for i := 0 to fADUCActiveDirectoryNode.Count - 1 do
+    begin
+      if not Assigned(fADUCActiveDirectoryNode.Items[i]) then
+        continue;
+      ItemNodeData := (fADUCActiveDirectoryNode.Items[i] as TADUCTreeNode).GetNodeDataObject;
+      if not Assigned(ItemNodeData) then
+        continue;
+      ItemDN := LowerCase(String(ItemNodeData.DistinguishedName));
+      if (ItemDN <> '') and ((TargetDN = ItemDN) or TargetDN.EndsWith(',' + ItemDN)) and (Length(ItemDN) > BestLen) then
+      begin
+        result := (fADUCActiveDirectoryNode.Items[i] as TADUCTreeNode);
+        BestLen := Length(ItemDN);
+      end;
+    end;
+  end;
 
   function Find(DN: String): TADUCTreeNode;
   var
@@ -3695,18 +3742,18 @@ var
     ItemNodeData: TADUCTreeNodeObject;
   begin
     result := nil;
-    for i := 0 to fADUCDomainNode.Count - 1 do
+    for i := 0 to DomainRoot.Count - 1 do
     begin
-      if not Assigned(fADUCDomainNode.Items[i]) then
+      if not Assigned(DomainRoot.Items[i]) then
         continue;
 
-      ItemNodeData := (fADUCDomainNode.Items[i] as TADUCTreeNode).GetNodeDataObject;
+      ItemNodeData := (DomainRoot.Items[i] as TADUCTreeNode).GetNodeDataObject;
       if not Assigned(ItemNodeData) then
         continue;
 
       if (ItemNodeData.DistinguishedName = DN) then
       begin
-        result := (fADUCDomainNode.Items[i] as TADUCTreeNode);
+        result := (DomainRoot.Items[i] as TADUCTreeNode);
         Break;
       end;
     end;
@@ -3725,7 +3772,7 @@ var
     SplittedCN := String(DNToCN(DN)).Split('/');
 
     // No node assigned
-    Node := fADUCDomainNode;
+    Node := DomainRoot;
     if not Assigned(Node) then
       Exit;
 
@@ -3748,6 +3795,10 @@ var
   end;
 
 begin
+  DomainRoot := FindDomainRootNode(DistinguishedName);
+  if not Assigned(DomainRoot) then
+    Exit;
+
   if (DistinguishedName <> FrmRSAT.LdapClient.DefaultDN()) then
     parentDN := GetParentDN(DistinguishedName);
 
