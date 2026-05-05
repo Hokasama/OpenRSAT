@@ -15,7 +15,6 @@ uses
   Forms,
   Controls,
   ComCtrls,
-  Graphics,
   ExtCtrls,
   StdCtrls,
   ActnList,
@@ -327,20 +326,6 @@ type
 
     fUpdating: Integer;
 
-    Panel_OpenAdaxesActions: TPanel;
-    Splitter_OpenAdaxesActions: TSplitter;
-    Label_OpenAdaxesActionsTitle: TLabel;
-    Label_OpenAdaxesSelection: TLabel;
-    Label_OpenAdaxesHint: TLabel;
-    Button_OpenAdaxesProperties: TButton;
-    Button_OpenAdaxesResetPassword: TButton;
-    Button_OpenAdaxesAddToGroup: TButton;
-    Button_OpenAdaxesMove: TButton;
-    Button_OpenAdaxesDelete: TButton;
-
-    procedure BuildOpenAdaxesActionPanel;
-    procedure UpdateOpenAdaxesActionPanel;
-
     procedure UpdateTreeImages(ANode: TADUCTreeNode);
 
     procedure UpdateGPLink(ANode: TADUCTreeNode; Flag: Integer);
@@ -466,102 +451,6 @@ begin
 end;
 
 { TFrmModuleADUC }
-
-procedure TFrmModuleADUC.BuildOpenAdaxesActionPanel;
-
-  function AddLabel(const ACaption: String; AHeight: Integer; AFontStyle: TFontStyles = []): TLabel;
-  begin
-    result := TLabel.Create(Self);
-    result.Parent := Panel_OpenAdaxesActions;
-    result.Align := alTop;
-    result.BorderSpacing.Around := 8;
-    result.Caption := ACaption;
-    result.AutoSize := False;
-    result.Height := AHeight;
-    result.WordWrap := True;
-    result.Font.Style := AFontStyle;
-  end;
-
-  function AddButton(const AName: String; AAction: TAction): TButton;
-  begin
-    result := TButton.Create(Self);
-    result.Parent := Panel_OpenAdaxesActions;
-    result.Name := AName;
-    result.Align := alTop;
-    result.BorderSpacing.Left := 8;
-    result.BorderSpacing.Right := 8;
-    result.BorderSpacing.Bottom := 6;
-    result.Height := 28;
-    result.Action := AAction;
-  end;
-
-begin
-  Splitter_OpenAdaxesActions := TSplitter.Create(Self);
-  Splitter_OpenAdaxesActions.Parent := Panel2;
-  Splitter_OpenAdaxesActions.Align := alRight;
-  Splitter_OpenAdaxesActions.Width := 5;
-  Splitter_OpenAdaxesActions.ResizeAnchor := akRight;
-
-  Panel_OpenAdaxesActions := TPanel.Create(Self);
-  Panel_OpenAdaxesActions.Parent := Panel2;
-  Panel_OpenAdaxesActions.Name := 'Panel_OpenAdaxesActions';
-  Panel_OpenAdaxesActions.Align := alRight;
-  Panel_OpenAdaxesActions.Width := 230;
-  Panel_OpenAdaxesActions.BevelOuter := bvLowered;
-  Panel_OpenAdaxesActions.Caption := '';
-
-  Label_OpenAdaxesActionsTitle := AddLabel('OpenAdaxes actions', 28, [fsBold]);
-  Button_OpenAdaxesProperties := AddButton('Button_OpenAdaxesProperties', Action_Properties);
-  Button_OpenAdaxesResetPassword := AddButton('Button_OpenAdaxesResetPassword', Action_TaskResetPassword);
-  Button_OpenAdaxesAddToGroup := AddButton('Button_OpenAdaxesAddToGroup', Action_TaskAddToAGroup);
-  Button_OpenAdaxesMove := AddButton('Button_OpenAdaxesMove', Action_TaskMove);
-  Button_OpenAdaxesDelete := AddButton('Button_OpenAdaxesDelete', Action_Delete);
-  Label_OpenAdaxesSelection := AddLabel('No object selected', 64);
-  Label_OpenAdaxesHint := AddLabel('Select an object to see the most useful administration actions here.', 82);
-
-  UpdateOpenAdaxesActionPanel;
-end;
-
-procedure TFrmModuleADUC.UpdateOpenAdaxesActionPanel;
-var
-  ObjectName, ObjectClass: RawUtf8;
-  ObjectClassArray: TRawUtf8DynArray;
-  NodeData: TADUCTreeNodeObject;
-  Row: PDocVariantData;
-  idx: Integer;
-begin
-  ObjectName := '';
-  ObjectClass := '';
-
-  Row := GridADUC.FocusedRow;
-  if Assigned(Row) and Row^.Exists('objectName') then
-  begin
-    ObjectName := Row^.U['objectName'];
-    if Row^.Exists('objectClass') then
-    begin
-      ObjectClassArray := Row^.A_['objectClass']^.ToRawUtf8DynArray;
-      idx := High(ObjectClassArray);
-      if idx >= 0 then
-        ObjectClass := ObjectClassArray[idx];
-    end;
-  end
-  else if Assigned(TreeADUC.Selected) then
-  begin
-    NodeData := (TreeADUC.Selected as TADUCTreeNode).GetNodeDataObject;
-    if Assigned(NodeData) then
-    begin
-      ObjectName := NodeData.DistinguishedName;
-      ObjectClass := NodeData.LastObjectClass;
-    end;
-  end;
-
-  if ObjectName = '' then
-    Label_OpenAdaxesSelection.Caption := 'No object selected'
-  else if ObjectClass = '' then
-    Label_OpenAdaxesSelection.Caption := String(ObjectName)
-  else
-    Label_OpenAdaxesSelection.Caption := Format('%s'#13#10'Class: %s', [String(ObjectName), String(ObjectClass)]);
-end;
 
 procedure TFrmModuleADUC.Action_RefreshExecute(Sender: TObject);
 var
@@ -1720,8 +1609,6 @@ var
   a: TLdapAttribute;
   value: RawUtf8;
 begin
-  UpdateOpenAdaxesActionPanel;
-
   if not Panel5.Visible then
      exit;
 
@@ -1882,7 +1769,6 @@ begin
 
   if not Assigned(Node) then
     Exit;
-  UpdateOpenAdaxesActionPanel;
   if Timer_TreeChangeNode.Enabled then
     Timer_TreeChangeNode.Enabled := False;
   Timer_TreeChangeNode.Enabled := True;
@@ -3199,7 +3085,6 @@ begin
       fADUCDomainNode.DeleteChildren;
     GridADUC.Clear;
     FreeAndNil(fADUCDomainNode);
-    UpdateOpenAdaxesActionPanel;
   finally
     TreeADUC.EndUpdate;
   end;
@@ -3328,8 +3213,6 @@ begin
 
   Image1.Visible := not IsDarkMode;
   Image2.Visible := not Image1.Visible;
-
-  BuildOpenAdaxesActionPanel;
 
   FrmRSAT.IniPropStorage1.IniSection := Name;
   CheckBox_IncludeSubContainer.Checked := FrmRSAT.IniPropStorage1.ReadBoolean(CheckBox_IncludeSubContainer.Name, False);
