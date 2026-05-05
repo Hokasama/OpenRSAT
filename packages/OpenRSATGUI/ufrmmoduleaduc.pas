@@ -337,13 +337,9 @@ type
     Button_OpenAdaxesAddToGroup: TButton;
     Button_OpenAdaxesMove: TButton;
     Button_OpenAdaxesDelete: TButton;
-    fOpenAdaxesSelectedText: String;
-    fOpenAdaxesSelectedDN: String;
-    fOpenAdaxesSelectedClass: String;
 
     procedure BuildOpenAdaxesActionPanel;
     procedure UpdateOpenAdaxesActionPanel;
-    procedure Button_OpenAdaxesPropertiesClick(Sender: TObject);
 
     procedure UpdateTreeImages(ANode: TADUCTreeNode);
 
@@ -516,9 +512,6 @@ begin
 
   Label_OpenAdaxesActionsTitle := AddLabel('OpenAdaxes actions', 28, [fsBold]);
   Button_OpenAdaxesProperties := AddButton('Button_OpenAdaxesProperties', Action_Properties);
-  Button_OpenAdaxesProperties.Action := nil;
-  Button_OpenAdaxesProperties.Caption := Action_Properties.Caption;
-  Button_OpenAdaxesProperties.OnClick := @Button_OpenAdaxesPropertiesClick;
   Button_OpenAdaxesResetPassword := AddButton('Button_OpenAdaxesResetPassword', Action_TaskResetPassword);
   Button_OpenAdaxesAddToGroup := AddButton('Button_OpenAdaxesAddToGroup', Action_TaskAddToAGroup);
   Button_OpenAdaxesMove := AddButton('Button_OpenAdaxesMove', Action_TaskMove);
@@ -539,28 +532,17 @@ var
 begin
   ObjectName := '';
   ObjectClass := '';
-  fOpenAdaxesSelectedText := '';
-  fOpenAdaxesSelectedDN := '';
-  fOpenAdaxesSelectedClass := '';
 
   Row := GridADUC.FocusedRow;
   if Assigned(Row) and Row^.Exists('objectName') then
   begin
     ObjectName := Row^.U['objectName'];
-    fOpenAdaxesSelectedDN := String(ObjectName);
-    if Row^.Exists('name') then
-      fOpenAdaxesSelectedText := Row^.U['name'];
-    if fOpenAdaxesSelectedText = '' then
-      fOpenAdaxesSelectedText := DNToCN(fOpenAdaxesSelectedDN);
     if Row^.Exists('objectClass') then
     begin
       ObjectClassArray := Row^.A_['objectClass']^.ToRawUtf8DynArray;
       idx := High(ObjectClassArray);
       if idx >= 0 then
-      begin
         ObjectClass := ObjectClassArray[idx];
-        fOpenAdaxesSelectedClass := String(ObjectClass);
-      end;
     end;
   end
   else if Assigned(TreeADUC.Selected) then
@@ -570,11 +552,6 @@ begin
     begin
       ObjectName := NodeData.DistinguishedName;
       ObjectClass := NodeData.LastObjectClass;
-      fOpenAdaxesSelectedDN := String(ObjectName);
-      fOpenAdaxesSelectedClass := String(ObjectClass);
-      fOpenAdaxesSelectedText := NodeData.Find('name').GetReadable();
-      if (fOpenAdaxesSelectedText = '') and (fOpenAdaxesSelectedDN <> '') then
-        fOpenAdaxesSelectedText := DNToCN(fOpenAdaxesSelectedDN);
     end;
   end;
 
@@ -584,15 +561,6 @@ begin
     Label_OpenAdaxesSelection.Caption := String(ObjectName)
   else
     Label_OpenAdaxesSelection.Caption := Format('%s'#13#10'Class: %s', [String(ObjectName), String(ObjectClass)]);
-
-  Button_OpenAdaxesProperties.Enabled := Assigned(FrmRSAT.LdapClient) and FrmRSAT.LdapClient.Connected and (fOpenAdaxesSelectedDN <> '');
-end;
-
-procedure TFrmModuleADUC.Button_OpenAdaxesPropertiesClick(Sender: TObject);
-begin
-  UpdateOpenAdaxesActionPanel;
-  if fOpenAdaxesSelectedDN <> '' then
-    FrmRSAT.OpenProperty(fOpenAdaxesSelectedDN, fOpenAdaxesSelectedText);
 end;
 
 procedure TFrmModuleADUC.Action_RefreshExecute(Sender: TObject);
