@@ -321,6 +321,7 @@ type
     fSearchWord: RawUtf8;
 
     fADUCRootNode: TADUCTreeNode;
+    fADUCForestNode: TADUCTreeNode;
     fADUCQueryNode: TADUCTreeNode;
     fADUCDomainNode: TADUCTreeNode;
 
@@ -333,6 +334,7 @@ type
     procedure RemoveGPLinks(ANode: TADUCTreeNode);
     procedure RefreshADUCForestDomains;
     procedure RefreshADUCTreeNode(Node: TADUCTreeNode);
+    function GetADUCDomainParentNode: TADUCTreeNode;
     function UseGlobalCatalogBrowsing: Boolean;
     function CreateADUCBrowseClient(out OwnClient: Boolean): TRsatLdapClient;
     procedure UpdateGridColumns;
@@ -2504,24 +2506,42 @@ var
   Ldap: TRsatLdapClient;
   OwnLdapClient: Boolean;
   SearchResult: TLdapResult;
-  DomainDN, DomainName: RawUtf8;
+  DomainDN, DomainName, ForestName: RawUtf8;
   RefreshNode: TADUCTreeNode;
+  DomainParentNode: TADUCTreeNode;
   ItemNodeData: TADUCTreeNodeObject;
   i: Integer;
 begin
   if not UseGlobalCatalogBrowsing then
     Exit;
 
+  if not Assigned(fADUCForestNode) then
+  begin
+    fADUCForestNode := (TreeADUC.Items.AddChild(fADUCRootNode, 'Forest domains') as TADUCTreeNode);
+    fADUCForestNode.NodeType := atntNone;
+    fADUCForestNode.ImageIndex := Ord(ileADContainer);
+    fADUCForestNode.SelectedIndex := fADUCForestNode.ImageIndex;
+    fADUCForestNode.HasChildren := True;
+  end;
+
+  DomainParentNode := GetADUCDomainParentNode;
+
   Ldap := CreateADUCBrowseClient(OwnLdapClient);
   if not Assigned(Ldap) then
     Exit;
   try
+    ForestName := DnToDomainName(Ldap.RootDN());
+    if ForestName <> '' then
+      fADUCForestNode.Text := FormatUtf8('Forest: %', [ForestName])
+    else
+      fADUCForestNode.Text := 'Forest domains';
+
     BackupItems.Init();
-    for i := 0 to Pred(fADUCRootNode.Count) do
+    for i := 0 to Pred(DomainParentNode.Count) do
     begin
-      if not Assigned(fADUCRootNode.Items[i]) or (fADUCRootNode.Items[i] = fADUCQueryNode) then
+      if not Assigned(DomainParentNode.Items[i]) then
         Continue;
-      ItemNodeData := (fADUCRootNode.Items[i] as TADUCTreeNode).GetNodeDataObject;
+      ItemNodeData := (DomainParentNode.Items[i] as TADUCTreeNode).GetNodeDataObject;
       if Assigned(ItemNodeData) and (ItemNodeData.DistinguishedName <> '') then
         BackupItems.I[ItemNodeData.DistinguishedName] := i;
     end;
@@ -2549,7 +2569,7 @@ begin
 
           if BackupItems.Exists(DomainDN) then
           begin
-            RefreshNode := (fADUCRootNode.Items[BackupItems.I[DomainDN]] as TADUCTreeNode);
+            RefreshNode := (DomainParentNode.Items[BackupItems.I[DomainDN]] as TADUCTreeNode);
             BackupItems.Delete(DomainDN);
           end
           else
@@ -2557,7 +2577,7 @@ begin
             DomainName := DnToDomainName(DomainDN);
             if DomainName = '' then
               DomainName := DNToCN(DomainDN);
-            RefreshNode := (TreeADUC.Items.AddChild(fADUCRootNode, String(DomainName)) as TADUCTreeNode);
+            RefreshNode := (TreeADUC.Items.AddChild(DomainParentNode, String(DomainName)) as TADUCTreeNode);
             RefreshNode.NodeType := atntObject;
             RefreshNode.HasChildren := True;
           end;
@@ -2583,17 +2603,18 @@ begin
 
     TreeADUC.BeginUpdate;
     try
-      i := fADUCRootNode.Count;
+      i := DomainParentNode.Count;
       while i > 0 do
       begin
         Dec(i);
-        if not Assigned(fADUCRootNode.Items[i]) or (fADUCRootNode.Items[i] = fADUCQueryNode) then
+        if not Assigned(DomainParentNode.Items[i]) then
           Continue;
-        ItemNodeData := (fADUCRootNode.Items[i] as TADUCTreeNode).GetNodeDataObject;
+        ItemNodeData := (DomainParentNode.Items[i] as TADUCTreeNode).GetNodeDataObject;
         if Assigned(ItemNodeData) and BackupItems.Exists(ItemNodeData.DistinguishedName) then
-          TreeADUC.Items.Delete(fADUCRootNode.Items[i]);
+          TreeADUC.Items.Delete(DomainParentNode.Items[i]);
       end;
       fADUCRootNode.Expand(False);
+      fADUCForestNode.Expand(False);
       if Assigned(fADUCDomainNode) then
         fADUCDomainNode.Selected := True;
     finally
@@ -2603,6 +2624,14 @@ begin
     if OwnLdapClient then
       FreeAndNil(Ldap);
   end;
+end;
+
+function TFrmModuleADUC.GetADUCDomainParentNode: TADUCTreeNode;
+begin
+  if UseGlobalCatalogBrowsing and Assigned(fADUCForestNode) then
+    result := fADUCForestNode
+  else
+    result := fADUCRootNode;
 end;
 
 function TFrmModuleADUC.UseGlobalCatalogBrowsing: Boolean;
@@ -2676,6 +2705,12 @@ begin
     Node := fADUCDomainNode;
   end;
 
+  if UseGlobalCatalogBrowsing and ((Node = fADUCRootNode) or (Node = fADUCForestNode)) then
+  begin
+    RefreshADUCForestDomains;
+    Exit;
+  end;
+
   // Get Ldap instance
   Ldap := CreateADUCBrowseClient(OwnLdapClient);
   if not Assigned(Ldap) then
@@ -2694,7 +2729,7 @@ begin
     end;
     TreeADUC.BeginUpdate;
     try
-      Node := (TreeADUC.Items.AddChild(fADUCRootNode, DNToCN(Obj.Find('distinguishedName').GetReadable())) as TADUCTreeNode);
+      Node := (TreeADUC.Items.AddChild(GetADUCDomainParentNode, DNToCN(Obj.Find('distinguishedName').GetReadable())) as TADUCTreeNode);
       Node.NodeType := atntObject;
       Node.GetNodeDataObject.DistinguishedName := Obj.Find('distinguishedName').GetReadable();
       Node.GetNodeDataObject.ObjectClass := Obj.Find('objectClass').GetAllReadable;
@@ -2920,6 +2955,11 @@ begin
   end;
 
   DistinguishedName := NodeData.DistinguishedName;
+  if DistinguishedName = '' then
+  begin
+    GridADUC.Clear;
+    Exit;
+  end;
 
   SelectedRows := GridADUC.SelectedRows;
   FocusedRowDN := '';
@@ -3050,7 +3090,8 @@ var
         fLog.Log(sllTrace, 'No node data', Self);
       Exit;
     end;
-    Insert(NodeData.DistinguishedName, result, 0);
+    if NodeData.DistinguishedName <> '' then
+      Insert(NodeData.DistinguishedName, result, 0);
   end;
 
 begin
@@ -3253,6 +3294,7 @@ begin
         TreeADUC.Items.Delete(fADUCRootNode.Items[i]);
     end;
     GridADUC.Clear;
+    fADUCForestNode := nil;
     fADUCDomainNode := nil;
   finally
     TreeADUC.EndUpdate;
@@ -3370,7 +3412,7 @@ begin
   fModuleAduc := TModuleADUC.Create(FrmRSAT.RSAT);
   fTreeSelectionHistory := TTreeSelectionHistory.Create;
 
-  fADUCRootNode := (TreeADUC.Items.Add(nil, 'Active Directory Users and Computers') as TADUCTreeNode);
+  fADUCRootNode := (TreeADUC.Items.Add(nil, 'OpenAdaxes Console') as TADUCTreeNode);
   fADUCRootNode.ImageIndex := Ord(ileAppIcon);
   fADUCRootNode.SelectedIndex := fADUCRootNode.ImageIndex;
 
@@ -3378,6 +3420,7 @@ begin
   fADUCQueryNode.ImageIndex := Ord(ileADContainer);
   fADUCQueryNode.SelectedIndex := fADUCQueryNode.ImageIndex;
 
+  fADUCForestNode := nil;
   fADUCDomainNode := nil;
 
   Image1.Visible := not IsDarkMode;
