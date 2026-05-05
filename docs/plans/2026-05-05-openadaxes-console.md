@@ -14,10 +14,11 @@
 
 Le produit cible n'est pas un clone web d'Adaxes. C'est une **console d'administration AD moderne** :
 
-- navigation ADUC-like ;
+- navigation ADUC/Adaxes-like avec branche **Active Directory** ;
+- ajout explicite de domaines par clic droit **Add domain...** ;
+- connexions LDAP/LDAPS directes par domaine (389/636) pour read/write ;
 - recherche forest-wide ;
 - propriétés objets ;
-- actions rapides ;
 - bulk operations ;
 - templates de provisioning ;
 - audit local ;
@@ -85,20 +86,22 @@ Le MVP doit permettre à un admin AD de remplacer une partie de son usage Adaxes
 ### MVP Features
 
 1. Console branding propre.
-2. Recherche forest-wide robuste.
-3. Panneau d'actions rapides sur utilisateur/groupe/OU.
-4. Actions bulk sur utilisateurs et groupes.
-5. Templates de création utilisateur.
-6. Audit local des actions.
-7. Favoris et objets récents.
-8. Packaging Windows x64 livrable.
+2. Branche gauche **Active Directory** avec clic droit **Add domain...**.
+3. Domaines ajoutés explicitement en LDAP/LDAPS direct 389/636, chacun avec son client read/write.
+4. Recherche forest-wide robuste comme aide/recherche, pas comme mécanisme principal de browsing multi-domain.
+5. Actions bulk sur utilisateurs et groupes.
+6. Templates de création utilisateur.
+7. Audit local des actions.
+8. Favoris et objets récents.
+9. Packaging Windows x64 livrable.
 
 ### MVP Acceptance Criteria
 
 - L'application démarre sous Windows x64.
 - Connexion à un domaine AD existant via profil OpenRSAT.
-- Recherche d'utilisateurs dans un domaine et dans la forêt.
-- Ouverture/modification d'un utilisateur trouvé via Global Catalog.
+- Branche **Active Directory** visible dans l'arbre gauche.
+- Clic droit sur **Active Directory** puis **Add domain...** pour ajouter un domaine/sub-domaine indépendamment.
+- Browsing et propriétés des objets du domaine ajouté via LDAP/LDAPS direct 389/636, pas via GC.
 - Sélection multi-objets et action bulk simple.
 - Création utilisateur depuis template.
 - Export CSV des résultats de recherche.

@@ -322,8 +322,12 @@ type
 
     fADUCRootNode: TADUCTreeNode;
     fADUCForestNode: TADUCTreeNode;
+    fADUCActiveDirectoryNode: TADUCTreeNode;
     fADUCQueryNode: TADUCTreeNode;
     fADUCDomainNode: TADUCTreeNode;
+    fExplicitDomainDNs: TRawUtf8DynArray;
+    fExplicitDomainClients: array of TRsatLdapClient;
+    fMenuItem_AddDomain: TMenuItem;
 
     fUpdating: Integer;
 
@@ -335,8 +339,15 @@ type
     procedure RefreshADUCForestDomains;
     procedure RefreshADUCTreeNode(Node: TADUCTreeNode);
     function GetADUCDomainParentNode: TADUCTreeNode;
+    function GetADUCExplicitDomainParentNode: TADUCTreeNode;
+    function CreateExplicitDomainClient(const DomainDns, DomainHost: RawUtf8): TRsatLdapClient;
+    procedure AddExplicitADDomain(Ldap: TRsatLdapClient);
+    function FindExplicitDomainClient(const DistinguishedName: RawUtf8): TRsatLdapClient;
+    procedure ClearExplicitDomainClients;
+    procedure MenuItem_AddDomainClick(Sender: TObject);
     function UseGlobalCatalogBrowsing: Boolean;
     function CreateADUCBrowseClient(out OwnClient: Boolean): TRsatLdapClient;
+    function CreateADUCBrowseClient(Node: TADUCTreeNode; out OwnClient: Boolean): TRsatLdapClient;
     procedure UpdateGridColumns;
     procedure UpdateGridADUC(ANode: TADUCTreeNode);
 
@@ -403,6 +414,7 @@ uses
   mormot.core.os.security,
   mormot.crypt.core,
   mormot.core.os,
+  mormot.core.rtti,
   ugplink;
 
 {$R *.lfm}
@@ -1301,7 +1313,9 @@ begin
 
   if DistinguishedName <> '' then
   begin
-    if UseGlobalCatalogBrowsing then
+    if Assigned(FindExplicitDomainClient(DistinguishedName)) then
+      FrmRSAT.OpenProperty(DistinguishedName, SelectedText, FindExplicitDomainClient(DistinguishedName), False)
+    else if UseGlobalCatalogBrowsing then
       FrmRSAT.OpenPropertyInObjectDomain(DistinguishedName, SelectedText)
     else
       FrmRSAT.OpenProperty(DistinguishedName, SelectedText);
@@ -1804,6 +1818,10 @@ var
 
 begin
   VisibleItems := [];
+
+  if TreeADUC.Selected = fADUCActiveDirectoryNode then
+    VisibleItems := Concat(VisibleItems, [fMenuItem_AddDomain, MenuItem_Refresh])
+  else
 
   case (TreeADUC.Selected as TADUCTreeNode).NodeType of
     atntObject:
@@ -2500,6 +2518,158 @@ begin
   end;
 end;
 
+
+function TFrmModuleADUC.GetADUCExplicitDomainParentNode: TADUCTreeNode;
+begin
+  if Assigned(fADUCActiveDirectoryNode) then
+    result := fADUCActiveDirectoryNode
+  else
+    result := fADUCRootNode;
+end;
+
+function TFrmModuleADUC.CreateExplicitDomainClient(const DomainDns, DomainHost: RawUtf8): TRsatLdapClient;
+var
+  Settings: TMLdapClientSettings;
+begin
+  result := nil;
+  if DomainDns = '' then
+    Exit;
+
+  Settings := TMLdapClientSettings.Create;
+  CopyObject(FrmRSAT.LdapClient.Settings, Settings);
+  Settings.KerberosDN := DomainDns;
+  if DomainHost <> '' then
+    Settings.TargetHost := DomainHost
+  else
+    Settings.TargetHost := DomainDns;
+  Settings.KerberosSpn := '';
+  if Settings.Tls then
+    Settings.TargetPort := LDAP_TLS_PORT
+  else
+    Settings.TargetPort := LDAP_PORT;
+
+  result := TRsatLdapClient.Create(Settings);
+  result.OnError := FrmRSAT.LdapClient.OnError;
+  if Assigned(result.TlsContext) then
+    result.TlsContext^.IgnoreCertificateErrors := Settings.AllowUnsafePasswordBind;
+  if not result.Connect then
+  begin
+    MessageDlg('Add domain', Format('Unable to connect to %s:%s%s%s', [String(Settings.TargetHost), String(Settings.TargetPort), LineEnding, String(result.ResultString)]), mtError, [mbOK], 0);
+    FreeAndNil(result);
+  end;
+end;
+
+procedure TFrmModuleADUC.AddExplicitADDomain(Ldap: TRsatLdapClient);
+var
+  SearchResult: TLdapResult;
+  NodeData: TADUCTreeNodeObject;
+  DomainNode: TADUCTreeNode;
+  DomainDN, DomainName: RawUtf8;
+  DomainObjectClass: TRawUtf8DynArray;
+begin
+  if not Assigned(Ldap) then
+    Exit;
+
+  DomainDN := Ldap.DefaultDN();
+  if DomainDN = '' then
+    DomainDN := Ldap.RootDN();
+  if DomainDN = '' then
+    Exit;
+
+  DomainName := DnToDomainName(DomainDN);
+  if DomainName = '' then
+    DomainName := TMLdapClientSettings(Ldap.Settings).KerberosDN;
+  if DomainName = '' then
+    DomainName := TMLdapClientSettings(Ldap.Settings).TargetHost;
+
+  if Assigned(FindExplicitDomainClient(DomainDN)) then
+  begin
+    MessageDlg('Add domain', Format('Domain "%s" is already added.', [String(DomainName)]), mtInformation, [mbOK], 0);
+    FreeAndNil(Ldap);
+    Exit;
+  end;
+
+  SearchResult := Ldap.SearchObject(DomainDN, '', ['distinguishedName', 'objectClass', 'name', 'gPLink', 'gPOptions']);
+  DomainNode := (TreeADUC.Items.AddChild(GetADUCExplicitDomainParentNode, String(DomainName)) as TADUCTreeNode);
+  DomainNode.NodeType := atntObject;
+  DomainNode.HasChildren := True;
+  NodeData := DomainNode.GetNodeDataObject;
+  if Assigned(NodeData) then
+  begin
+    NodeData.DistinguishedName := DomainDN;
+    NodeData.Name := SearchResult.Find('name').GetReadable();
+    SetLength(DomainObjectClass, 1);
+    DomainObjectClass[0] := 'domainDNS';
+    NodeData.ObjectClass := DomainObjectClass;
+    NodeData.GPLink := SearchResult.Find('gPLink').GetReadable();
+    NodeData.GPOptions := SearchResult.Find('gPOptions').GetReadable();
+  end;
+  TreeADUC.OnGetImageIndex(Self, DomainNode);
+
+  Insert(DomainDN, fExplicitDomainDNs, Length(fExplicitDomainDNs));
+  SetLength(fExplicitDomainClients, Length(fExplicitDomainClients) + 1);
+  fExplicitDomainClients[High(fExplicitDomainClients)] := Ldap;
+
+  if not Assigned(fADUCDomainNode) then
+    fADUCDomainNode := DomainNode;
+  fADUCActiveDirectoryNode.Expand(False);
+  DomainNode.Selected := True;
+end;
+
+function TFrmModuleADUC.FindExplicitDomainClient(const DistinguishedName: RawUtf8): TRsatLdapClient;
+var
+  i, Best, BestLen: Integer;
+  DN, DomainDN: String;
+begin
+  result := nil;
+  Best := -1;
+  BestLen := -1;
+  DN := LowerCase(String(DistinguishedName));
+  for i := 0 to High(fExplicitDomainDNs) do
+  begin
+    DomainDN := LowerCase(String(fExplicitDomainDNs[i]));
+    if (DomainDN <> '') and ((DN = DomainDN) or DN.EndsWith(',' + DomainDN)) and (Length(DomainDN) > BestLen) then
+    begin
+      Best := i;
+      BestLen := Length(DomainDN);
+    end;
+  end;
+  if (Best >= 0) and (Best <= High(fExplicitDomainClients)) then
+    result := fExplicitDomainClients[Best];
+end;
+
+procedure TFrmModuleADUC.ClearExplicitDomainClients;
+var
+  i: Integer;
+begin
+  for i := 0 to High(fExplicitDomainClients) do
+    FreeAndNil(fExplicitDomainClients[i]);
+  fExplicitDomainClients := nil;
+  fExplicitDomainDNs := nil;
+end;
+
+procedure TFrmModuleADUC.MenuItem_AddDomainClick(Sender: TObject);
+var
+  DomainDns, DomainHost: String;
+  Ldap: TRsatLdapClient;
+begin
+  DomainDns := '';
+  DomainHost := '';
+  if not InputQuery('Add domain', 'Domain DNS name:', DomainDns) then
+    Exit;
+  DomainDns := Trim(DomainDns);
+  if DomainDns = '' then
+    Exit;
+  DomainHost := DomainDns;
+  if not InputQuery('Add domain', 'Domain controller or host (leave domain name if unsure):', DomainHost) then
+    Exit;
+  DomainHost := Trim(DomainHost);
+
+  Ldap := CreateExplicitDomainClient(RawUtf8(DomainDns), RawUtf8(DomainHost));
+  if Assigned(Ldap) then
+    AddExplicitADDomain(Ldap);
+end;
+
 procedure TFrmModuleADUC.RefreshADUCForestDomains;
 var
   BackupItems: TDocVariantData;
@@ -2519,7 +2689,7 @@ begin
 
   if not Assigned(fADUCForestNode) then
   begin
-    fADUCForestNode := (TreeADUC.Items.AddChild(fADUCRootNode, 'Forest domains') as TADUCTreeNode);
+    fADUCForestNode := (TreeADUC.Items.AddChild(GetADUCExplicitDomainParentNode, 'Forest domains') as TADUCTreeNode);
     fADUCForestNode.NodeType := atntNone;
     fADUCForestNode.ImageIndex := Ord(ileADContainer);
     fADUCForestNode.SelectedIndex := fADUCForestNode.ImageIndex;
@@ -2667,7 +2837,7 @@ begin
   if UseGlobalCatalogBrowsing and Assigned(fADUCForestNode) then
     result := fADUCForestNode
   else
-    result := fADUCRootNode;
+    result := GetADUCExplicitDomainParentNode;
 end;
 
 function TFrmModuleADUC.UseGlobalCatalogBrowsing: Boolean;
@@ -2679,7 +2849,24 @@ end;
 
 function TFrmModuleADUC.CreateADUCBrowseClient(out OwnClient: Boolean): TRsatLdapClient;
 begin
+  result := CreateADUCBrowseClient((TreeADUC.Selected as TADUCTreeNode), OwnClient);
+end;
+
+function TFrmModuleADUC.CreateADUCBrowseClient(Node: TADUCTreeNode; out OwnClient: Boolean): TRsatLdapClient;
+var
+  NodeData: TADUCTreeNodeObject;
+begin
   OwnClient := False;
+  result := nil;
+  if Assigned(Node) then
+  begin
+    NodeData := Node.GetNodeDataObject;
+    if Assigned(NodeData) and (NodeData.DistinguishedName <> '') then
+      result := FindExplicitDomainClient(NodeData.DistinguishedName);
+  end;
+  if Assigned(result) then
+    Exit;
+
   result := FrmRSAT.LdapClient;
   if not UseGlobalCatalogBrowsing then
     Exit;
@@ -2748,7 +2935,7 @@ begin
   end;
 
   // Get Ldap instance
-  Ldap := CreateADUCBrowseClient(OwnLdapClient);
+  Ldap := CreateADUCBrowseClient(Node, OwnLdapClient);
   if not Assigned(Ldap) then
     Exit;
   try
@@ -3022,7 +3209,7 @@ begin
   if (Filter <> '') then
     Filter := FormatUtf8('(&%)', [Filter]);
 
-  SearchLdap := CreateADUCBrowseClient(OwnSearchLdap);
+  SearchLdap := CreateADUCBrowseClient(ANode, OwnSearchLdap);
   if not Assigned(SearchLdap) then
     Exit;
 
@@ -3320,14 +3507,15 @@ procedure TFrmModuleADUC.LdapCloseEvent(Sender: TObject);
 var
   i: Integer;
 begin
+  ClearExplicitDomainClients;
   TreeADUC.BeginUpdate;
   try
-    i := fADUCRootNode.Count;
+    i := fADUCActiveDirectoryNode.Count;
     while i > 0 do
     begin
       Dec(i);
-      if Assigned(fADUCRootNode.Items[i]) and (fADUCRootNode.Items[i] <> fADUCQueryNode) then
-        TreeADUC.Items.Delete(fADUCRootNode.Items[i]);
+      if Assigned(fADUCActiveDirectoryNode.Items[i]) then
+        TreeADUC.Items.Delete(fADUCActiveDirectoryNode.Items[i]);
     end;
     GridADUC.Clear;
     fADUCForestNode := nil;
@@ -3452,12 +3640,25 @@ begin
   fADUCRootNode.ImageIndex := Ord(ileAppIcon);
   fADUCRootNode.SelectedIndex := fADUCRootNode.ImageIndex;
 
-  fADUCQueryNode := (TreeADUC.Items.AddChild(fADUCRootNode, 'Saved Query') as TADUCTreeNode);
+  fADUCQueryNode := (TreeADUC.Items.AddChild(fADUCRootNode, 'Saved Queries') as TADUCTreeNode);
   fADUCQueryNode.ImageIndex := Ord(ileADContainer);
   fADUCQueryNode.SelectedIndex := fADUCQueryNode.ImageIndex;
 
+  fADUCActiveDirectoryNode := (TreeADUC.Items.AddChild(fADUCRootNode, 'Active Directory') as TADUCTreeNode);
+  fADUCActiveDirectoryNode.NodeType := atntNone;
+  fADUCActiveDirectoryNode.ImageIndex := Ord(ileADContainer);
+  fADUCActiveDirectoryNode.SelectedIndex := fADUCActiveDirectoryNode.ImageIndex;
+  fADUCActiveDirectoryNode.HasChildren := True;
+
+  fMenuItem_AddDomain := TMenuItem.Create(PopupMenu1);
+  fMenuItem_AddDomain.Caption := 'Add domain...';
+  fMenuItem_AddDomain.OnClick := @MenuItem_AddDomainClick;
+  PopupMenu1.Items.Insert(0, fMenuItem_AddDomain);
+
   fADUCForestNode := nil;
   fADUCDomainNode := nil;
+  fExplicitDomainDNs := nil;
+  fExplicitDomainClients := nil;
 
   Image1.Visible := not IsDarkMode;
   Image2.Visible := not Image1.Visible;
@@ -3474,6 +3675,7 @@ begin
   FrmRSAT.IniPropStorage1.IniSection := Name;
   FrmRSAT.IniPropStorage1.WriteBoolean(CheckBox_IncludeSubContainer.Name, CheckBox_IncludeSubContainer.Checked);
 
+  ClearExplicitDomainClients;
   FreeAndNil(fTreeSelectionHistory);
   FreeAndNil(fModuleAduc);
 
