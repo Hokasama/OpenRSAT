@@ -331,7 +331,10 @@ type
     procedure UpdateGPLink(ANode: TADUCTreeNode; Flag: Integer);
     procedure RefreshGPLinks(ANode: TADUCTreeNode; Recursive: Boolean = True);
     procedure RemoveGPLinks(ANode: TADUCTreeNode);
+    procedure RefreshADUCForestDomains;
     procedure RefreshADUCTreeNode(Node: TADUCTreeNode);
+    function UseGlobalCatalogBrowsing: Boolean;
+    function CreateADUCBrowseClient(out OwnClient: Boolean): TRsatLdapClient;
     procedure UpdateGridColumns;
     procedure UpdateGridADUC(ANode: TADUCTreeNode);
 
@@ -391,6 +394,7 @@ uses
   ufrmrsat,
   uviseditaduccolumns,
   uvisshowrelationship,
+  uldapconfigs,
   uconfig,
   uhelpers,
   mormot.crypt.secure,
@@ -1294,7 +1298,12 @@ begin
   end;
 
   if DistinguishedName <> '' then
-    FrmRSAT.OpenProperty(DistinguishedName, SelectedText);
+  begin
+    if UseGlobalCatalogBrowsing then
+      FrmRSAT.OpenPropertyInObjectDomain(DistinguishedName, SelectedText)
+    else
+      FrmRSAT.OpenProperty(DistinguishedName, SelectedText);
+  end;
 end;
 
 procedure TFrmModuleADUC.Action_PropertiesUpdate(Sender: TObject);
@@ -2489,6 +2498,136 @@ begin
   end;
 end;
 
+procedure TFrmModuleADUC.RefreshADUCForestDomains;
+var
+  BackupItems: TDocVariantData;
+  Ldap: TRsatLdapClient;
+  OwnLdapClient: Boolean;
+  SearchResult: TLdapResult;
+  DomainDN, DomainName: RawUtf8;
+  RefreshNode: TADUCTreeNode;
+  ItemNodeData: TADUCTreeNodeObject;
+  i: Integer;
+begin
+  if not UseGlobalCatalogBrowsing then
+    Exit;
+
+  Ldap := CreateADUCBrowseClient(OwnLdapClient);
+  if not Assigned(Ldap) then
+    Exit;
+  try
+    BackupItems.Init();
+    for i := 0 to Pred(fADUCRootNode.Count) do
+    begin
+      if not Assigned(fADUCRootNode.Items[i]) or (fADUCRootNode.Items[i] = fADUCQueryNode) then
+        Continue;
+      ItemNodeData := (fADUCRootNode.Items[i] as TADUCTreeNode).GetNodeDataObject;
+      if Assigned(ItemNodeData) and (ItemNodeData.DistinguishedName <> '') then
+        BackupItems.I[ItemNodeData.DistinguishedName] := i;
+    end;
+
+    Ldap.SearchBegin(fModuleAduc.ADUCOption.SearchPageSize);
+    TreeADUC.BeginUpdate;
+    try
+      Ldap.SearchScope := lssWholeSubtree;
+      repeat
+        if not Ldap.Search(Ldap.RootDN(), False, '(objectClass=domainDNS)', ['distinguishedName', 'objectClass', 'name', 'gPLink', 'gPOptions']) then
+        begin
+          if Assigned(fLog) then
+            fLog.Log(sllError, 'Fail to discover forest domains: %', [Ldap.ResultString], Self);
+          Exit;
+        end;
+
+        for SearchResult in Ldap.SearchResult.Items do
+        begin
+          if not Assigned(SearchResult) then
+            Continue;
+
+          DomainDN := SearchResult.Find('distinguishedName').GetReadable();
+          if DomainDN = '' then
+            Continue;
+
+          if BackupItems.Exists(DomainDN) then
+          begin
+            RefreshNode := (fADUCRootNode.Items[BackupItems.I[DomainDN]] as TADUCTreeNode);
+            BackupItems.Delete(DomainDN);
+          end
+          else
+          begin
+            DomainName := DnToDomainName(DomainDN);
+            if DomainName = '' then
+              DomainName := DNToCN(DomainDN);
+            RefreshNode := (TreeADUC.Items.AddChild(fADUCRootNode, String(DomainName)) as TADUCTreeNode);
+            RefreshNode.NodeType := atntObject;
+            RefreshNode.HasChildren := True;
+          end;
+
+          ItemNodeData := RefreshNode.GetNodeDataObject;
+          if not Assigned(ItemNodeData) then
+            Continue;
+          ItemNodeData.DistinguishedName := DomainDN;
+          ItemNodeData.Name := SearchResult.Find('name').GetReadable();
+          ItemNodeData.ObjectClass := SearchResult.Find('objectClass').GetAllReadable;
+          ItemNodeData.GPLink := SearchResult.Find('gPLink').GetReadable();
+          ItemNodeData.GPOptions := SearchResult.Find('gPOptions').GetReadable();
+          TreeADUC.OnGetImageIndex(Self, RefreshNode);
+
+          if (fADUCDomainNode = nil) or (DomainDN = FrmRSAT.LdapClient.DefaultDN()) then
+            fADUCDomainNode := RefreshNode;
+        end;
+      until Ldap.SearchCookie = '';
+    finally
+      TreeADUC.EndUpdate;
+      Ldap.SearchEnd;
+    end;
+
+    TreeADUC.BeginUpdate;
+    try
+      i := fADUCRootNode.Count;
+      while i > 0 do
+      begin
+        Dec(i);
+        if not Assigned(fADUCRootNode.Items[i]) or (fADUCRootNode.Items[i] = fADUCQueryNode) then
+          Continue;
+        ItemNodeData := (fADUCRootNode.Items[i] as TADUCTreeNode).GetNodeDataObject;
+        if Assigned(ItemNodeData) and BackupItems.Exists(ItemNodeData.DistinguishedName) then
+          TreeADUC.Items.Delete(fADUCRootNode.Items[i]);
+      end;
+      fADUCRootNode.Expand(False);
+      if Assigned(fADUCDomainNode) then
+        fADUCDomainNode.Selected := True;
+    finally
+      TreeADUC.EndUpdate;
+    end;
+  finally
+    if OwnLdapClient then
+      FreeAndNil(Ldap);
+  end;
+end;
+
+function TFrmModuleADUC.UseGlobalCatalogBrowsing: Boolean;
+begin
+  result := Assigned(FrmRSAT) and Assigned(FrmRSAT.LdapClient) and
+            (FrmRSAT.LdapClient.Settings is TMLdapClientSettings) and
+            TMLdapClientSettings(FrmRSAT.LdapClient.Settings).UseGlobalCatalogSearch;
+end;
+
+function TFrmModuleADUC.CreateADUCBrowseClient(out OwnClient: Boolean): TRsatLdapClient;
+begin
+  OwnClient := False;
+  result := FrmRSAT.LdapClient;
+  if not UseGlobalCatalogBrowsing then
+    Exit;
+
+  result := CreateGlobalCatalogClient(FrmRSAT.LdapClient);
+  OwnClient := True;
+  if not result.Connect then
+  begin
+    FreeAndNil(result);
+    OwnClient := False;
+  end;
+end;
+
 procedure TFrmModuleADUC.RefreshADUCTreeNode(Node: TADUCTreeNode);
 var
   BackupItems: TDocVariantData;
@@ -2499,6 +2638,7 @@ var
   NodeData, ItemNodeData: TADUCTreeNodeObject;
   i: Integer;
   Obj: TLdapResult;
+  OwnLdapClient: Boolean;
 
   function BuildFilter: RawUtf8;
   var
@@ -2527,10 +2667,20 @@ begin
 
   // Fallback to domainNode
   if not Assigned(Node) then
+  begin
+    if UseGlobalCatalogBrowsing then
+    begin
+      RefreshADUCForestDomains;
+      Exit;
+    end;
     Node := fADUCDomainNode;
+  end;
 
   // Get Ldap instance
-  Ldap := FrmRSAT.LdapClient;
+  Ldap := CreateADUCBrowseClient(OwnLdapClient);
+  if not Assigned(Ldap) then
+    Exit;
+  try
 
   // Retrieve domainNode
   if not Assigned(Node) then
@@ -2679,6 +2829,10 @@ begin
 
   // Sort nodes
   Node.CustomSort(@Node.ADUCNodeCompare);
+  finally
+    if OwnLdapClient then
+      FreeAndNil(Ldap);
+  end;
 end;
 
 procedure TFrmModuleADUC.UpdateGridColumns;
@@ -2745,6 +2899,8 @@ var
   NodeData: TADUCTreeNodeObject;
   PageCount: Integer;
   SearchText: RawUtf8;
+  SearchLdap: TRsatLdapClient;
+  OwnSearchLdap: Boolean;
 begin
   if not Assigned(ANode) then
     ANode := (TreeADUC.Selected as TADUCTreeNode);
@@ -2790,21 +2946,27 @@ begin
   if (Filter <> '') then
     Filter := FormatUtf8('(&%)', [Filter]);
 
-  FrmRSAT.LdapClient.SearchBegin(fModuleAduc.ADUCOption.SearchPageSize);
+  SearchLdap := CreateADUCBrowseClient(OwnSearchLdap);
+  if not Assigned(SearchLdap) then
+    Exit;
+
+  SearchLdap.SearchBegin(fModuleAduc.ADUCOption.SearchPageSize);
   try
     if CheckBox_IncludeSubContainer.Checked then
-      FrmRSAT.LdapClient.SearchScope := lssWholeSubtree
+      SearchLdap.SearchScope := lssWholeSubtree
     else
-      FrmRSAT.LdapClient.SearchScope := lssSingleLevel;
-    FrmRSAT.LdapClient.OnSearch := @OnSearchEventFillGrid;
+      SearchLdap.SearchScope := lssSingleLevel;
+    SearchLdap.OnSearch := @OnSearchEventFillGrid;
     repeat
-      if not FrmRSAT.LdapClient.Search(DistinguishedName, False, Filter, Concat(fModuleAduc.ADUCOption.GridAttributesFilter, ['userAccountControl'])) then
+      if not SearchLdap.Search(DistinguishedName, False, Filter, Concat(fModuleAduc.ADUCOption.GridAttributesFilter, ['userAccountControl'])) then
         Exit;
       Inc(PageCount);
-    until (FrmRSAT.LdapClient.SearchCookie = '') or (PageCount = fModuleAduc.ADUCOption.SearchPageNumber);
+    until (SearchLdap.SearchCookie = '') or (PageCount = fModuleAduc.ADUCOption.SearchPageNumber);
   finally
-    FrmRSAT.LdapClient.OnSearch := nil;
-    FrmRSAT.LdapClient.SearchEnd;
+    SearchLdap.OnSearch := nil;
+    SearchLdap.SearchEnd;
+    if OwnSearchLdap then
+      FreeAndNil(SearchLdap);
   end;
 
   UpdateGridColumns;
@@ -3078,13 +3240,20 @@ begin
 end;
 
 procedure TFrmModuleADUC.LdapCloseEvent(Sender: TObject);
+var
+  i: Integer;
 begin
   TreeADUC.BeginUpdate;
   try
-    if Assigned(fADUCDomainNode) and fADUCDomainNode.HasChildren then
-      fADUCDomainNode.DeleteChildren;
+    i := fADUCRootNode.Count;
+    while i > 0 do
+    begin
+      Dec(i);
+      if Assigned(fADUCRootNode.Items[i]) and (fADUCRootNode.Items[i] <> fADUCQueryNode) then
+        TreeADUC.Items.Delete(fADUCRootNode.Items[i]);
+    end;
     GridADUC.Clear;
-    FreeAndNil(fADUCDomainNode);
+    fADUCDomainNode := nil;
   finally
     TreeADUC.EndUpdate;
   end;
